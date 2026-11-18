@@ -1,42 +1,225 @@
 #!/usr/bin/env bash
-#MISE description="Run backend plugin tests - test plugin linking and basic functionality"
+#MISE description="Install real pi packages from npm into an isolated mise and pi setup"
 set -euo pipefail
 
-# Link the plugin for testing
-mise plugin link --force "<BACKEND>" .
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REQUIRED_COMMANDS=(node npm pi jq)
 
-# Clear cache to ensure fresh testing
-mise cache clear
+PACKAGE="pi-system-prompt"
+TOOL="pi:$PACKAGE"
+OLD_VERSION="0.1.3"
+NEW_VERSION="0.1.4"
+SCOPED_PACKAGE="@narumitw/pi-caffeinate"
+SCOPED_TOOL="pi:$SCOPED_PACKAGE"
+SCOPED_VERSION="0.49.15"
 
-# Test that the plugin can list tools (this should work even if no tools are available)
-echo "Testing plugin linking and basic functionality..."
+usage() {
+	cat <<EOF
+Usage: $(basename "$0") [--keep] [--help]
 
-# Try to list available versions for a test tool
-# Note: This will likely fail until you implement the backend methods
-# Replace <TEST_TOOL> with a real tool name your backend supports
-TEST_TOOL="<TEST_TOOL>"
+Links this backend plugin into an isolated mise setup and installs real pi packages from npm.
+The pi settings and packages live in a temporary PI_CODING_AGENT_DIR, so the real pi setup is not changed.
 
-echo "Testing version listing for ${TEST_TOOL}..."
-if mise ls-remote "<BACKEND>:${TEST_TOOL}" 2>/dev/null; then
-    echo "✓ Version listing works"
-else
-    echo "⚠ Version listing failed - implement backend_list_versions.lua for your backend"
+Options:
+  --keep   Keep the temporary directory after the tests finish
+  --help   Show this help
+EOF
+}
+
+color() {
+	local code="$1"
+	shift
+	if [[ -n "${NO_COLOR:-}" || ! -t 2 ]]; then
+		printf '%s' "$*"
+	else
+		printf '\033[%sm%s\033[0m' "$code" "$*"
+	fi
+}
+
+log() {
+	printf '%s %s\n' "$(color 34 '==>')" "$*" >&2
+}
+
+pass() {
+	printf '%s %s\n' "$(color 32 'ok')" "$*" >&2
+}
+
+fail() {
+	printf '%s %s\n' "$(color 31 'FAIL')" "$*" >&2
+	exit 1
+}
+
+keep=false
+while [[ $# -gt 0 ]]; do
+	case "$1" in
+	--keep) keep=true ;;
+	--help)
+		usage
+		exit 0
+		;;
+	*)
+		usage >&2
+		exit 1
+		;;
+	esac
+	shift
+done
+
+# Resolve real binaries before isolating mise, because mise shims and command wrappers
+# would look for tools in the isolated data directory.
+tool_path=""
+for command in "${REQUIRED_COMMANDS[@]}"; do
+	resolved="$(mise which "$command" 2>/dev/null || command -v "$command" || true)"
+	[[ -n "$resolved" ]] || fail "required command not found: $command"
+	tool_path="$tool_path$(dirname "$resolved"):"
+done
+export PATH="$tool_path$PATH"
+
+root="$(mktemp -d "${TMPDIR:-/tmp}/mise-pi-test.XXXXXX")"
+cleanup() {
+	if [[ "$keep" == true ]]; then
+		log "kept $root"
+	else
+		rm -rf "$root"
+	fi
+}
+trap cleanup EXIT
+
+export MISE_DATA_DIR="$root/mise-data"
+export MISE_CACHE_DIR="$root/mise-cache"
+export MISE_STATE_DIR="$root/mise-state"
+export MISE_CONFIG_DIR="$root/mise-config"
+export MISE_GLOBAL_CONFIG_FILE="$root/mise-config/config.toml"
+export MISE_TRUSTED_CONFIG_PATHS="$root/work"
+export MISE_YES=1
+export PI_CODING_AGENT_DIR="$root/pi-agent"
+export PI_SKIP_VERSION_CHECK=1
+export PI_TELEMETRY=0
+SETTINGS="$PI_CODING_AGENT_DIR/settings.json"
+mkdir -p "$root/work" "$PI_CODING_AGENT_DIR"
+cd "$root/work"
+
+# Print the pi settings entry for an npm package as compact JSON, or null
+settings_entry() {
+	local name="$1"
+	jq -c --arg name "$name" \
+		'first(.packages[]? | select((if type == "string" then . else .source end) | test("^npm:" + ($name | gsub("[.]"; "\\.")) + "(@|$)"))) // null' \
+		"$SETTINGS"
+}
+
+assert_entry() {
+	local name="$1"
+	local expected="$2"
+	local actual
+	actual="$(settings_entry "$name")"
+	[[ "$actual" == "$(jq -c . <<<"$expected")" ]] || fail "$name: expected entry $expected, got $actual"
+}
+
+installed_version() {
+	local name="$1"
+	local manifest="$PI_CODING_AGENT_DIR/npm/node_modules/$name/package.json"
+	if [[ -f "$manifest" ]]; then
+		jq -r .version "$manifest"
+	fi
+}
+
+assert_installed_version() {
+	local name="$1"
+	local expected="$2"
+	local actual
+	actual="$(installed_version "$name")"
+	[[ "$actual" == "$expected" ]] || fail "$name: expected installed version '$expected', got '$actual'"
+}
+
+write_config() {
+	printf '[tools]\n%s\n' "$1" >"$root/work/mise.toml"
+}
+
+log "linking backend plugin from $REPO_DIR"
+mise plugin link --force pi "$REPO_DIR" >/dev/null
+
+log "listing versions"
+versions="$(mise ls-remote "$TOOL")"
+grep -qx "$OLD_VERSION" <<<"$versions" || fail "$TOOL: $OLD_VERSION not listed"
+grep -qx "$NEW_VERSION" <<<"$versions" || fail "$TOOL: $NEW_VERSION not listed"
+[[ "$(head -n 1 <<<"$versions")" != "$NEW_VERSION" ]] || fail "$TOOL: versions are not listed oldest first"
+pass "npm versions are listed oldest first"
+created_at="$(mise ls-remote --json "$TOOL" | jq -r --arg version "$OLD_VERSION" '.[] | select(.version == $version) | .created_at // empty')"
+[[ "$created_at" == 20* ]] || fail "$TOOL: no release date for $OLD_VERSION"
+pass "versions have release dates"
+if mise ls-remote "pi:.invalid" >/dev/null 2>&1; then
+	fail "an invalid package name is accepted"
 fi
+pass "an invalid package name is rejected"
 
-# Test installation if versions are available
-echo "Testing installation..."
-if mise install "<BACKEND>:${TEST_TOOL}@latest" 2>/dev/null; then
-    echo "✓ Installation works"
-    
-    # Test that the tool can be executed
-    if mise exec "<BACKEND>:${TEST_TOOL}@latest" -- ${TEST_TOOL} --version 2>/dev/null; then
-        echo "✓ Tool execution works"
-    else
-        echo "⚠ Tool execution failed - check backend_exec_env.lua implementation"
-    fi
-else
-    echo "⚠ Installation failed - implement backend_install.lua for your backend"
+log "replacing an entry that pi install wrote"
+printf '{\n  "theme": "dark",\n  "packages": [\n    "npm:%s"\n  ],\n  "zeta": 1\n}' "$PACKAGE" >"$SETTINGS"
+write_config "\"$TOOL\" = \"$OLD_VERSION\""
+output="$(mise install 2>&1)"
+grep -q "$PACKAGE was configured in the pi settings as npm:$PACKAGE; replacing it" <<<"$output" ||
+	fail "no replacement warning in output: $output"
+assert_entry "$PACKAGE" "\"npm:$PACKAGE@$OLD_VERSION\""
+assert_installed_version "$PACKAGE" "$OLD_VERSION"
+[[ "$(jq -c 'keys_unsorted' "$SETTINGS")" == '["theme","packages","zeta"]' ]] ||
+	fail "the settings keys changed order: $(jq -c 'keys_unsorted' "$SETTINGS")"
+pass "install replaces a foreign entry with a warning, and keeps the order of the settings keys"
+
+log "writing options to the settings entry"
+write_config "\"$TOOL\" = { version = \"$OLD_VERSION\", autoload = false, skills = [], extensions = [\"extensions/*.ts\", \"!extensions/legacy.ts\"], postinstall = \"true\" }"
+output="$(mise install --force "$TOOL" 2>&1)"
+grep -q "replacing it" <<<"$output" && fail "unexpected replacement warning: $output"
+assert_entry "$PACKAGE" "{\"source\":\"npm:$PACKAGE@$OLD_VERSION\",\"autoload\":false,\"extensions\":[\"extensions/*.ts\",\"!extensions/legacy.ts\"],\"skills\":[]}"
+pass "options become the object form of the entry, and an empty list stays a list"
+
+log "rejecting invalid options"
+write_config "\"$TOOL\" = { version = \"$OLD_VERSION\", skill = [] }"
+if output="$(mise install --force "$TOOL" 2>&1)"; then
+	fail "an unknown option is accepted"
 fi
+grep -q "unknown option: skill" <<<"$output" || fail "no unknown option error in output: $output"
+write_config "\"$TOOL\" = { version = \"$OLD_VERSION\", autoload = \"maybe\" }"
+if output="$(mise install --force "$TOOL" 2>&1)"; then
+	fail "an invalid autoload value is accepted"
+fi
+grep -q "option autoload must be true or false" <<<"$output" || fail "no autoload error in output: $output"
+pass "invalid options are rejected"
 
-echo "✓ Basic plugin structure tests completed"
-echo "Note: Replace <TEST_TOOL> with a real tool and implement the backend methods"
+log "upgrading to $NEW_VERSION"
+write_config "\"$TOOL\" = \"$NEW_VERSION\""
+output="$(mise install 2>&1)"
+grep -q "replacing it" <<<"$output" && fail "unexpected replacement warning on upgrade: $output"
+assert_entry "$PACKAGE" "\"npm:$PACKAGE@$NEW_VERSION\""
+assert_installed_version "$PACKAGE" "$NEW_VERSION"
+pass "a newer install pins the new version and removes the old options"
+
+log "uninstalling the superseded version"
+mise uninstall "$TOOL@$OLD_VERSION" >/dev/null 2>&1
+assert_entry "$PACKAGE" "\"npm:$PACKAGE@$NEW_VERSION\""
+assert_installed_version "$PACKAGE" "$NEW_VERSION"
+pass "uninstalling a version that pi does not use keeps the package"
+
+log "installing a scoped package"
+write_config "\"$TOOL\" = \"$NEW_VERSION\"
+\"$SCOPED_TOOL\" = \"$SCOPED_VERSION\""
+mise install >/dev/null 2>&1
+assert_entry "$SCOPED_PACKAGE" "\"npm:$SCOPED_PACKAGE@$SCOPED_VERSION\""
+assert_installed_version "$SCOPED_PACKAGE" "$SCOPED_VERSION"
+[[ -z "$(installed_version "@earendil-works/pi-coding-agent")" ]] ||
+	fail "the pi peer dependency was installed into the pi package directory"
+pass "a scoped package is installed without the pi peer dependencies"
+
+log "pruning packages that mise.toml no longer lists"
+write_config "\"$SCOPED_TOOL\" = \"$SCOPED_VERSION\""
+mise prune >/dev/null 2>&1
+assert_entry "$PACKAGE" "null"
+assert_installed_version "$PACKAGE" ""
+assert_entry "$SCOPED_PACKAGE" "\"npm:$SCOPED_PACKAGE@$SCOPED_VERSION\""
+pass "mise prune removes the package from pi"
+
+log "uninstalling the scoped package"
+mise uninstall "$SCOPED_TOOL@$SCOPED_VERSION" >/dev/null 2>&1
+assert_entry "$SCOPED_PACKAGE" "null"
+assert_installed_version "$SCOPED_PACKAGE" ""
+pass "uninstalling the pinned version removes the package from pi"
+
+log "all tests passed"
