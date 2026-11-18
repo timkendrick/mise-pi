@@ -13,6 +13,7 @@ SCOPED_PACKAGE="@narumitw/pi-caffeinate"
 SCOPED_TOOL="pi:$SCOPED_PACKAGE"
 SCOPED_VERSION="0.49.15"
 TAGGED_PACKAGE="@earendil-works/pi-coding-agent"
+PARALLEL_PACKAGES=(pi-system-prompt pi-caffeinate @narumitw/pi-caffeinate pi-compact-transcript)
 
 usage() {
 	cat <<EOF
@@ -231,5 +232,19 @@ mise uninstall "$SCOPED_TOOL@$SCOPED_VERSION" >/dev/null 2>&1
 assert_entry "$SCOPED_PACKAGE" "null"
 assert_installed_version "$SCOPED_PACKAGE" ""
 pass "uninstalling the pinned version removes the package from pi"
+
+log "installing ${#PARALLEL_PACKAGES[@]} packages in parallel"
+config=""
+for package in "${PARALLEL_PACKAGES[@]}"; do
+	config="$config\"pi:$package\" = \"latest\""$'\n'
+done
+write_config "$config"
+MISE_JOBS="${#PARALLEL_PACKAGES[@]}" mise install >/dev/null 2>&1
+for package in "${PARALLEL_PACKAGES[@]}"; do
+	version="$(mise latest "pi:$package" </dev/null)"
+	assert_entry "$package" "\"npm:$package@$version\""
+	assert_installed_version "$package" "$version"
+done
+pass "parallel installs keep every package and settings entry"
 
 log "all tests passed"
