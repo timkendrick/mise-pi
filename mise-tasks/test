@@ -12,6 +12,7 @@ NEW_VERSION="0.1.4"
 SCOPED_PACKAGE="@narumitw/pi-caffeinate"
 SCOPED_TOOL="pi:$SCOPED_PACKAGE"
 SCOPED_VERSION="0.49.15"
+TAGGED_PACKAGE="@earendil-works/pi-coding-agent"
 
 usage() {
 	cat <<EOF
@@ -147,6 +148,15 @@ pass "npm versions are listed oldest first"
 created_at="$(mise ls-remote --json "$TOOL" | jq -r --arg version "$OLD_VERSION" '.[] | select(.version == $version) | .created_at // empty')"
 [[ "$created_at" == 20* ]] || fail "$TOOL: no release date for $OLD_VERSION"
 pass "versions have release dates"
+dist_tag="$(npm view "$TAGGED_PACKAGE" dist-tags --json | jq -r 'to_entries | map(select(.key != "latest")) | first | .key // empty')"
+if [[ -n "$dist_tag" ]]; then
+	expected="$(npm view "$TAGGED_PACKAGE" dist-tags --json | jq -r --arg tag "$dist_tag" '.[$tag]')"
+	actual="$(mise latest "pi:$TAGGED_PACKAGE@$dist_tag" </dev/null)"
+	[[ "$actual" == "$expected" ]] || fail "pi:$TAGGED_PACKAGE@$dist_tag: expected $expected, got '$actual'"
+	pass "npm dist-tags are version aliases"
+else
+	log "skipped the dist-tag test: $TAGGED_PACKAGE has no dist-tag other than latest"
+fi
 if mise ls-remote "pi:.invalid" >/dev/null 2>&1; then
 	fail "an invalid package name is accepted"
 fi

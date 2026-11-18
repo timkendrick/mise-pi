@@ -1,340 +1,162 @@
-# mise backend plugin template
+# mise-pi
 
-This is a GitHub template for building a mise backend plugin using the vfox-style backend architecture.
+A [mise](https://mise.jdx.dev) backend plugin that manages [pi](https://pi.dev) packages declaratively.
 
-## What are Backend Plugins?
+Declare pi packages in `mise.toml` instead of running `pi install` by hand:
 
-Backend plugins in mise extend the standard tool plugin system to manage **multiple tools** using the `plugin:tool` format. They're perfect for:
-
-- **Package managers** (npm, pip, cargo, gem)
-- **Tool families** (multiple related tools from one ecosystem) 
-- **Custom installations** that need to manage many tools
-
-Unlike tool plugins that manage one tool, backend plugins can install and manage multiple tools like `npm:prettier`, `npm:eslint`, `cargo:ripgrep`, etc.
-
-## Using this template
-
-### Option 1: Use GitHub's template feature (recommended)
-1. Click "Use this template" button on GitHub
-2. Name your repository (e.g., `mise-mybackend` or `vfox-mybackend`)
-3. Clone your new repository
-4. Follow the setup instructions below
-
-### Option 2: Clone and modify
-```bash
-git clone https://github.com/jdx/mise-backend-plugin-template mise-mybackend
-cd mise-mybackend
-rm -rf .git
-git init
+```toml
+[tools]
+"npm:@earendil-works/pi-coding-agent" = "latest"
+"pi:pi-goal-x" = "latest"
+"pi:@narumitw/pi-lsp" = "0.49.12"
+"pi:pi-web-search" = { version = "latest", skills = [] }
+"pi:@narumitw/pi-caffeinate" = { version = "latest", autoload = false }
 ```
 
-## Setup Instructions
+mise installs each package with `pi install` and writes its entry to the pi settings. The options on each tool entry become the [resource filters](https://pi.dev/docs/packages) of the package.
 
-### 1. Replace placeholders
+## Install the plugin
 
-Search and replace these placeholders throughout the project:
-- `<BACKEND>` → your backend name (e.g., `npm`, `cargo`, `pip`)
-- `<GITHUB_USER>` → your GitHub username or organization  
-- `<TEST_TOOL>` → a real tool name your backend can install (for testing)
-
-Files to update:
-- `metadata.lua` - Update name, version, description, author, license, homepage, and optional metadata
-- `hooks/*.lua` - Replace placeholders and implement your backend logic
-- `mise-tasks/test` - Update test tool name and commands
-- `README.md` - Update this file with your backend's information
-
-### 2. Implement the backend hooks
-
-Backend plugins require three main hooks:
-
-#### `hooks/backend_list_versions.lua`
-Lists available versions for a tool in your backend.
-
-```lua
-function PLUGIN:BackendListVersions(ctx)
-    local tool = ctx.tool
-    -- local options = ctx.options
-    -- Your logic to fetch versions for the tool
-    -- Return: {versions = {"1.0.0", "1.1.0", "2.0.0"}}
-end
+```sh
+mise plugin install pi https://github.com/timkendrick/mise-pi
 ```
 
-**Examples**:
-- **API-based**: Query npm registry, PyPI, crates.io APIs
-- **Command-based**: Run `npm view <tool> versions`, `pip index versions <tool>`
-- **File-based**: Parse registry files or manifests
+Each pi package is then available as `pi:<npm package>`, such as `pi:pi-goal-x` or `pi:@narumitw/pi-lsp`. The plugin supports npm packages only.
 
-#### `hooks/backend_install.lua` 
-Installs a specific version of a tool.
+### The pi CLI tool name
 
-```lua
-function PLUGIN:BackendInstall(ctx)
-    local tool = ctx.tool
-    local version = ctx.version  
-    local install_path = ctx.install_path
-    local download_path = ctx.download_path
-    -- local options = ctx.options
-    -- Your logic to install the tool
-    -- Return: {}
-end
+When this plugin is installed as `pi`, mise reads the bare tool name `pi` as a reference to the plugin, not to the pi CLI.
+
+Install the CLI with its full backend name instead:
+
+```toml
+[tools]
+# Before
+pi = "latest"
+
+# After
+"npm:@earendil-works/pi-coding-agent" = "latest"
 ```
 
-**Examples**:
-- **Package manager**: `npm install <tool>@<version>`, `pip install <tool>==<version>`
-- **Download & extract**: Download binary/archive and extract to install_path
-- **Build from source**: Clone repository, checkout version, build and install
+The plugin runs `pi` and `node` to install packages and to edit the pi settings. If `node` and `"npm:@earendil-works/pi-coding-agent"` are in your config, mise installs them first and puts them on `PATH` for the plugin. Otherwise the plugin uses the `pi` and `node` on your `PATH`. Version listing runs `npm`, which must be on your `PATH`.
 
-#### `hooks/backend_exec_env.lua`
-Sets up environment variables for a tool.
+## Versions
 
-```lua
-function PLUGIN:BackendExecEnv(ctx)
-    local install_path = ctx.install_path
-    -- local options = ctx.options
-    -- Your logic to set up environment
-    -- Return: {env_vars = {{key = "PATH", value = install_path .. "/bin"}}}
-end
+The plugin uses the published npm versions of the package.
+
+| mise version | Installs |
+| --- | --- |
+| `0.34.1` | The version `0.34.1` |
+| `0.34` | The newest published `0.34.x` version |
+| `latest` | The newest published version |
+| `next` | The version that the npm dist-tag `next` points at |
+
+`mise ls-remote pi:<package>` lists the versions, oldest first. Each version has its npm release date, so [`minimum_release_age`](https://mise.jdx.dev/configuration/settings.html#minimum_release_age) works.
+
+The dist-tags of the package, such as `next` or `beta`, are available as version aliases. The `latest` dist-tag is an exception: mise resolves `latest` to the newest published version.
+
+## Options
+
+The options of a tool entry configure which resources pi loads from the package. They have the same names and meanings as the fields of the [object form](https://pi.dev/docs/packages) of a pi package entry.
+
+| Option | Type | Effect |
+| --- | --- | --- |
+| `extensions` | list of patterns | Load only the matching extensions |
+| `skills` | list of patterns | Load only the matching skills |
+| `prompts` | list of patterns | Load only the matching prompt templates |
+| `themes` | list of patterns | Load only the matching themes |
+| `autoload` | `true` or `false` | With `false`, load only the resources that the patterns select |
+
+For each resource type:
+
+- Leave out the option to load all resources of that type.
+- Use `[]` to load no resources of that type.
+- Use `!pattern` to exclude glob matches.
+- Use `+path` to include one exact path.
+- Use `-path` to exclude one exact path.
+
+To disable a package but keep it installed, set `autoload = false` and leave out the resource options.
+
+The plugin rejects unknown options and invalid values, for example `skill = []` instead of `skills = []`. Generic mise tool options, such as `postinstall` and `minimum_release_age`, are allowed.
+
+### Example
+
+This `mise.toml` entry:
+
+```toml
+[tools]
+"pi:pi-web-search" = { version = "1.7.0", skills = [], extensions = ["extensions/*.ts", "!extensions/legacy.ts"] }
 ```
 
-**Examples**:
-- **Basic**: Add `bin/` directory to PATH
-- **Complex**: Set tool-specific environment variables, library paths
-- **Ecosystem-specific**: Like `node_modules/.bin` for npm, site-packages for Python
+writes this entry to the `packages` list of the pi settings:
 
-### 3. Platform considerations
-
-Your backend may need to handle different operating systems:
-
-```lua
--- Available in all hooks via RUNTIME object
-if RUNTIME.osType == "Darwin" then
-    -- macOS-specific logic
-elseif RUNTIME.osType == "Linux" then  
-    -- Linux-specific logic
-elseif RUNTIME.osType == "Windows" then
-    -- Windows-specific logic
-end
+```json
+{
+  "source": "npm:pi-web-search@1.7.0",
+  "extensions": ["extensions/*.ts", "!extensions/legacy.ts"],
+  "skills": []
+}
 ```
 
-### 4. Error handling
+Without options, the entry is the source string, such as `"npm:pi-web-search@1.7.0"`.
 
-Provide meaningful error messages:
+## How install works
 
-```lua
-function PLUGIN:BackendListVersions(ctx)
-    local tool = ctx.tool
+For `"pi:pi-web-search" = { version = "1.7.0", skills = [] }`, install does these steps:
 
-    if not tool or tool == "" then
-        error("Tool name cannot be empty")
-    end
+1. Validate the package name and the options.
+2. Read the current pi settings entry of the package. If the entry exists and mise did not write it, show a warning.
+3. Run `pi install npm:pi-web-search@1.7.0`. pi installs the package into its package directory, `~/.pi/agent/npm`, and pins the version in its settings.
+4. Replace the settings entry of the package with the entry for the options. The entry keeps its position in the `packages` list.
+5. Write `pi-mise.json` in the mise install directory. This file records the settings source for uninstall.
 
-    -- ... your implementation ...
-    
-    if #versions == 0 then
-        error("No versions found for " .. tool)
-    end
-    
-    return {versions = versions}
-end
+The plugin edits the pi settings file at `$PI_CODING_AGENT_DIR/settings.json`, or at `~/.pi/agent/settings.json` when `PI_CODING_AGENT_DIR` is not set. It takes the same lock as pi while it edits the file. It keeps the other settings and their key order.
+
+### Replace an existing entry
+
+pi has one settings entry for each npm package. If the pi settings already configure the package, install replaces the entry and shows a warning such as:
+
+```text
+pi-web-search was configured in the pi settings as npm:pi-web-search; replacing it with pi:pi-web-search@1.7.0
 ```
 
-## Development Workflow
+To move a package from `pi install` to mise, add it to `mise.toml` and run `mise install`.
 
-### Setting up development environment
+There is no warning when install replaces the entry of another mise install of the same tool, for example during `mise upgrade`.
 
-1. Install pre-commit hooks (optional but recommended):
-```bash
-hk install
+## How uninstall works
+
+`mise uninstall`, `mise upgrade` and `mise prune` run `pi remove`, but only if the pi settings still pin the version that mise removes. For example, `mise upgrade` installs the new version first. Then it removes the old version, and pi keeps the new version.
+
+If you remove a package from `mise.toml`, run `mise prune` to remove it from pi.
+
+## Limitations
+
+- **Option changes:** mise does not install a version again when its options change. Run `mise install --force pi:<package>` to write the new options to the pi settings.
+- **One version for each package:** pi installs one version of each package. If `mise.toml` requests more than one version of a package, the version that mise installs last is active in pi.
+- **Changes in pi:** mise does not detect changes that you make with the pi CLI or `pi config`. If you run `pi remove`, run `mise install --force pi:<package>` to install the package again.
+- **Updates in pi:** pi does not update pinned versions, so `pi update --extensions` does not change packages that mise installs. Use `mise upgrade` instead.
+- **User settings only:** the plugin writes to the user settings of pi. It does not write project settings in `.pi/settings.json`.
+
+## Platforms
+
+The plugin supports macOS and Linux. It needs `pi`, `node` and `npm`. Windows is not supported.
+
+## Development
+
+Link your working copy:
+
+```sh
+mise plugin link --force pi .
 ```
 
-This sets up automatic linting and formatting on git commits.
+| Task | Description |
+| --- | --- |
+| `mise run test` | Install, upgrade and remove real pi packages from npm in an isolated mise and pi setup |
+| `mise run lint` | Check formatting, types, the settings script, the test script and GitHub Actions workflows |
+| `mise run ci` | Run all checks |
 
-### Local Testing
-
-1. Link your plugin for development:
-```bash
-mise plugin link --force <BACKEND> .
-```
-
-2. Test version listing:
-```bash
-mise ls-remote <BACKEND>:<some-tool>
-```
-
-3. Test installation:
-```bash
-mise install <BACKEND>:<some-tool>@latest
-```
-
-4. Test execution:
-```bash
-mise exec <BACKEND>:<some-tool>@latest -- <some-tool> --version
-```
-
-5. Run tests:
-```bash
-mise run test
-```
-
-6. Run linting:
-```bash
-mise run lint
-```
-
-7. Run full CI suite:
-```bash
-mise run ci
-```
-
-### Code Quality
-
-This template uses [hk](https://hk.jdx.dev) for modern linting and pre-commit hooks:
-
-- **Automatic formatting**: `stylua` formats Lua code
-- **Static analysis**: `luacheck` catches Lua issues  
-- **GitHub Actions linting**: `actionlint` validates workflows
-- **Pre-commit hooks**: Runs all checks automatically on git commit
-
-Manual commands:
-```bash
-hk check      # Run all linters (same as mise run lint)
-hk fix        # Run linters and auto-fix issues
-```
-
-### Debugging
-
-Enable debug output:
-```bash
-mise --debug install <BACKEND>:<tool>@<version>
-```
-
-## Files
-
-- `metadata.lua` – Backend plugin metadata and configuration
-- `hooks/backend_list_versions.lua` – Lists available versions for tools
-- `hooks/backend_install.lua` – Installs specific versions of tools
-- `hooks/backend_exec_env.lua` – Sets up environment variables for tools
-- `.github/workflows/ci.yml` – GitHub Actions CI/CD pipeline
-- `mise.toml` – Development tools and configuration
-- `mise-tasks/` – Task scripts for testing
-- `hk.pkl` – Modern linting and pre-commit hook configuration
-- `.luacheckrc` – Lua linting configuration
-- `stylua.toml` – Lua formatting configuration
-
-## Backend Examples
-
-### Package Manager Backend (npm-style)
-```lua
--- backend_list_versions.lua
-function PLUGIN:BackendListVersions(ctx)
-    local cmd = require("cmd")
-    local json = require("json")
-    local result = cmd.exec("mypm view " .. ctx.tool .. " versions --json")
-    return {versions = json.decode(result)}
-end
-
--- backend_install.lua  
-function PLUGIN:BackendInstall(ctx)
-    local cmd = require("cmd")
-    cmd.exec("mypm install " .. ctx.tool .. "@" .. ctx.version .. " --prefix " .. ctx.install_path)
-    return {}
-end
-
--- backend_exec_env.lua
-function PLUGIN:BackendExecEnv(ctx)
-    return {
-        env_vars = {
-            {key = "PATH", value = ctx.install_path .. "/bin"}
-        }
-    }
-end
-```
-
-### Binary Download Backend (GitHub releases-style)
-```lua
--- backend_list_versions.lua
-function PLUGIN:BackendListVersions(ctx)
-    local http = require("http")
-    local json = require("json")
-    local resp = http.get({url = "https://api.github.com/repos/owner/" .. ctx.tool .. "/releases"})
-    local releases = json.decode(resp.body)
-    local versions = {}
-    for _, release in ipairs(releases) do
-        table.insert(versions, release.tag_name:gsub("^v", ""))
-    end
-    return {versions = versions}
-end
-
--- backend_install.lua
-function PLUGIN:BackendInstall(ctx)
-    local platform = RUNTIME.osType:lower()
-    local arch = RUNTIME.archType
-    local url = "https://github.com/owner/" .. ctx.tool .. "/releases/download/v" .. ctx.version .. 
-                "/" .. ctx.tool .. "-" .. platform .. "-" .. arch .. ".tar.gz"
-    
-    local http = require("http")
-    local file = require("file")
-    local archiver = require("archiver")
-    local temp_file = file.join_path(ctx.download_path, "tool.tar.gz")
-    http.download_file({url = url}, temp_file)
-
-    archiver.decompress(temp_file, ctx.install_path)
-    return {}
-end
-```
-
-## Real-World Examples
-
-- [vfox-npm](https://github.com/jdx/vfox-npm) - Backend for npm packages
-- Study existing mise backends: npm, cargo, pip, gem
-
-## Context Variables Reference
-
-### BackendListVersions Context
-| Variable | Type | Description | Example |
-|----------|------|-------------|---------|
-| `ctx.tool` | string | Tool name | `"prettier"` |
-| `ctx.options` | table | Plugin options from `mise.toml` | `{}` |
-
-### BackendInstall Context
-| Variable | Type | Description | Example |
-|----------|------|-------------|---------|
-| `ctx.tool` | string | Tool name | `"prettier"` |
-| `ctx.version` | string | Tool version | `"3.0.0"` |
-| `ctx.install_path` | string | Installation directory | `"/home/user/.local/share/mise/installs/npm/prettier/3.0.0"` |
-| `ctx.download_path` | string | Download cache directory | `"/home/user/.local/share/mise/downloads/npm/prettier/3.0.0"` |
-| `ctx.options` | table | Plugin options from `mise.toml` | `{}` |
-
-### BackendExecEnv Context
-| Variable | Type | Description | Example |
-|----------|------|-------------|---------|
-| `ctx.tool` | string | Tool name | `"prettier"` |
-| `ctx.version` | string | Tool version | `"3.0.0"` |
-| `ctx.install_path` | string | Installation directory | `"/home/user/.local/share/mise/installs/npm/prettier/3.0.0"` |
-| `ctx.options` | table | Plugin options from `mise.toml` | `{}` |
-
-### Available Lua Modules
-
-Backend plugins have access to these built-in modules:
-
-- `cmd` - Execute shell commands
-- `http` - HTTP client for downloads and API calls  
-- `json` - JSON parsing and encoding
-- `file` - File system operations
-- `archiver` - Archive extraction
-
-## Publishing
-
-1. Ensure all tests pass: `mise run ci`
-2. Create a GitHub repository for your plugin
-3. Push your code
-4. Test with: `mise plugin install mybackend https://github.com/user/mise-mybackend`
-
-## Documentation
-
-- [Backend Plugin Development](https://mise.jdx.dev/backend-plugin-development.html) - Complete guide
-- [Backend Architecture](https://mise.jdx.dev/dev-tools/backend_architecture.html) - How backends work
-- [Lua modules reference](https://mise.jdx.dev/plugin-lua-modules.html) - Available modules
+The test uses a temporary `PI_CODING_AGENT_DIR`, so it does not change your pi setup. It needs network access, `node`, `npm`, `pi` and `jq`. Use `mise run test -- --keep` to keep the temporary directory.
 
 ## License
 
