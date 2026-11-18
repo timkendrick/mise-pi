@@ -18,7 +18,7 @@ description = "Format Lua scripts"
 run = "stylua metadata.lua hooks/ lib/"
 
 [tasks.lint]
-description = "Lint Lua scripts, the settings script and GitHub Actions using hk"
+description = "Lint Lua scripts, the node script and GitHub Actions using hk"
 run = "hk check"
 
 [tasks.lint-fix]

@@ -1,6 +1,5 @@
 local install_record = require("install_record")
-local settings = require("settings")
-local shell_command = require("shell_command")
+local pi_packages = require("pi_packages")
 
 --- Removes the package from pi when the pi settings still use the version that mise removes.
 --- @param ctx BackendUninstallCtx
@@ -9,8 +8,5 @@ function PLUGIN:BackendUninstall(ctx)
     if record == nil then
         return
     end
-    local existing = settings.get(ctx.tool)
-    if existing ~= nil and settings.entry_source(existing) == record.source then
-        shell_command.exec({ "pi", "remove", "npm:" .. ctx.tool }, { cwd = ctx.install_path })
-    end
+    pi_packages.remove(ctx.tool, record.source, ctx.install_path)
 end

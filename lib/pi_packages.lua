@@ -7,7 +7,18 @@ local M = {}
 
 --- @return string
 local function script_path()
-    return file.join_path(RUNTIME.pluginDirPath, "lib", "settings.mjs")
+    return file.join_path(RUNTIME.pluginDirPath, "lib", "pi_packages.mjs")
+end
+
+--- @param args string[]
+--- @param cwd string
+--- @return string
+local function run(args, cwd)
+    local argv = { "node", script_path() }
+    for _, arg in ipairs(args) do
+        table.insert(argv, arg)
+    end
+    return shell_command.exec(argv, { cwd = cwd })
 end
 
 ---@alias PackageEntry string|{source: string}
@@ -24,9 +35,10 @@ end
 
 --- Returns the pi settings entry for an npm package, or nil when the settings do not configure the package.
 --- @param name string
+--- @param cwd string
 --- @return PackageEntry|nil
-function M.get(name)
-    local output = strings.trim_space(shell_command.exec({ "node", script_path(), "get", name }))
+function M.get(name, cwd)
+    local output = strings.trim_space(run({ "get", name }, cwd))
     if output == "null" then
         return nil
     end
@@ -40,11 +52,20 @@ function M.get(name)
     return entry
 end
 
---- Replaces the pi settings entry for an npm package, or appends it.
+--- Installs the source of an entry with pi, then replaces the pi settings entry for the npm package.
 --- @param name string
 --- @param entry_json string
-function M.set(name, entry_json)
-    shell_command.exec({ "node", script_path(), "set", name, entry_json })
+--- @param cwd string
+function M.install(name, entry_json, cwd)
+    run({ "install", name, entry_json }, cwd)
+end
+
+--- Removes an npm package from pi if its pi settings entry has the given source.
+--- @param name string
+--- @param source string
+--- @param cwd string
+function M.remove(name, source, cwd)
+    run({ "remove", name, source }, cwd)
 end
 
 return M

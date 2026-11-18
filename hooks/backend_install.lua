@@ -3,7 +3,7 @@ local log = require("log")
 local install_record = require("install_record")
 local npm_package = require("npm_package")
 local options = require("options")
-local settings = require("settings")
+local pi_packages = require("pi_packages")
 local shell_command = require("shell_command")
 
 --- @param path string
@@ -22,7 +22,7 @@ end
 --- @param install_path string
 --- @return boolean
 local function written_by_mise(entry, name, install_path)
-    local source = settings.entry_source(entry)
+    local source = pi_packages.entry_source(entry)
     local prefix = "npm:" .. name .. "@"
     if source:sub(1, #prefix) ~= prefix then
         return false
@@ -53,7 +53,8 @@ function PLUGIN:BackendInstall(ctx)
     local source = npm_package.source(name, ctx.version)
     local entry_json = options.encode_entry(source, options.parse(ctx.options))
 
-    local existing = settings.get(name)
+    shell_command.make_dir(ctx.install_path)
+    local existing = pi_packages.get(name, ctx.install_path)
     if existing ~= nil and not written_by_mise(existing, name, ctx.install_path) then
         log.warn(
             name
@@ -66,9 +67,7 @@ function PLUGIN:BackendInstall(ctx)
         )
     end
 
-    shell_command.make_dir(ctx.install_path)
-    shell_command.exec({ "pi", "install", source }, { cwd = ctx.install_path })
-    settings.set(name, entry_json)
+    pi_packages.install(name, entry_json, ctx.install_path)
     install_record.write(ctx.install_path, { source = source })
     return {}
 end

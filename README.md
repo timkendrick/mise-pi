@@ -112,6 +112,8 @@ For `"pi:pi-web-search" = { version = "1.7.0", skills = [] }`, install does thes
 
 The plugin edits the pi settings file at `$PI_CODING_AGENT_DIR/settings.json`, or at `~/.pi/agent/settings.json` when `PI_CODING_AGENT_DIR` is not set. It takes the same lock as pi while it edits the file. It keeps the other settings and their key order.
 
+pi installs all packages into one npm directory and one settings file. mise installs tools in parallel, so the plugin runs steps 3 and 4 for one package at a time. Uninstall runs `pi remove` under the same lock. The lock is the directory `mise-pi.lock` in the pi agent directory. If the process that holds the lock stops, the next install removes the lock.
+
 ### Replace an existing entry
 
 pi has one settings entry for each npm package. If the pi settings already configure the package, install replaces the entry and shows a warning such as:
@@ -153,7 +155,7 @@ mise plugin link --force pi .
 | Task | Description |
 | --- | --- |
 | `mise run test` | Install, upgrade and remove real pi packages from npm in an isolated mise and pi setup |
-| `mise run lint` | Check formatting, types, the settings script, the test script and GitHub Actions workflows |
+| `mise run lint` | Check formatting, types, the node script, the test script and GitHub Actions workflows |
 | `mise run ci` | Run all checks |
 
 The test uses a temporary `PI_CODING_AGENT_DIR`, so it does not change your pi setup. It needs network access, `node`, `npm`, `pi` and `jq`. Use `mise run test -- --keep` to keep the temporary directory.
