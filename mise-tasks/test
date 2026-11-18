@@ -98,7 +98,7 @@ export PI_CODING_AGENT_DIR="$root/pi-agent"
 export PI_SKIP_VERSION_CHECK=1
 export PI_TELEMETRY=0
 SETTINGS="$PI_CODING_AGENT_DIR/settings.json"
-mkdir -p "$root/work" "$PI_CODING_AGENT_DIR"
+mkdir -p "$root/work"
 cd "$root/work"
 
 # Print the pi settings entry for an npm package as compact JSON, or null
@@ -163,10 +163,20 @@ if mise ls-remote "pi:.invalid" >/dev/null 2>&1; then
 fi
 pass "an invalid package name is rejected"
 
+log "installing without a pi agent directory"
+[[ ! -e "$PI_CODING_AGENT_DIR" ]] || fail "$PI_CODING_AGENT_DIR exists before the first install"
+write_config "\"$TOOL\" = \"$OLD_VERSION\""
+mise install >/dev/null 2>&1 || fail "install failed without a pi agent directory"
+assert_entry "$PACKAGE" "\"npm:$PACKAGE@$OLD_VERSION\""
+assert_installed_version "$PACKAGE" "$OLD_VERSION"
+pass "install creates the pi agent directory"
+
 log "replacing an entry that pi install wrote"
 printf '{\n  "theme": "dark",\n  "packages": [\n    "npm:%s"\n  ],\n  "zeta": 1\n}' "$PACKAGE" >"$SETTINGS"
-write_config "\"$TOOL\" = \"$OLD_VERSION\""
-output="$(mise install 2>&1)"
+unrelated_file="$PI_CODING_AGENT_DIR/auth.json"
+printf '{"unrelated": true}' >"$unrelated_file"
+output="$(mise install --force "$TOOL" 2>&1)"
+[[ "$(cat "$unrelated_file")" == '{"unrelated": true}' ]] || fail "install changed $unrelated_file"
 grep -q "$PACKAGE was configured in the pi settings as npm:$PACKAGE; replacing it" <<<"$output" ||
 	fail "no replacement warning in output: $output"
 assert_entry "$PACKAGE" "\"npm:$PACKAGE@$OLD_VERSION\""
