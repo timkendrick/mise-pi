@@ -11,6 +11,14 @@ local linters = new Mapping<String, Step> {
         check = "stylua --check {{files}}"
         fix = "stylua {{files}}"
     }
+    ["node-check"] {
+        glob = "**/*.mjs"
+        check = "for file in {{files}}; do node --check \"$file\" || exit 1; done"
+    }
+    ["shellcheck"] {
+        glob = "mise-tasks/*"
+        check = "shellcheck {{files}}"
+    }
     ["actionlint"] {
         glob = ".github/workflows/*.{yml,yaml}"
         check = "actionlint {{files}}"

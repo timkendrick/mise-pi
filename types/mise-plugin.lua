@@ -107,8 +107,13 @@ ARCH_TYPE = ""
 ---@field tool string Tool name
 ---@field options table Plugin options from mise.toml
 
+---@class BackendVersionInfo
+---@field version string Version string
+---@field created_at? string Release date as an RFC 3339 timestamp
+
 ---@class BackendListVersionsResult
----@field versions string[] List of available versions
+---@field versions (string|BackendVersionInfo)[] List of available versions, oldest first
+---@field aliases? table<string, string> Named versions, mapped to the version they point at
 
 ---@class BackendInstallCtx
 ---@field tool string Tool name
@@ -127,6 +132,13 @@ ARCH_TYPE = ""
 
 ---@class BackendExecEnvResult
 ---@field env_vars EnvKey[] Environment variables to set
+
+---@class BackendUninstallCtx
+---@field tool string Tool name
+---@field version string Installed version
+---@field install_path string Installation path, which still exists
+---@field download_path string Download path
+---@field options table Plugin options from mise.toml
 
 ---@class SystemDependency
 ---@field bin? string Executable that must be on PATH
@@ -158,6 +170,7 @@ ARCH_TYPE = ""
 ---@field BackendListVersions? fun(self: Plugin, ctx: BackendListVersionsCtx): BackendListVersionsResult
 ---@field BackendInstall? fun(self: Plugin, ctx: BackendInstallCtx): BackendInstallResult
 ---@field BackendExecEnv? fun(self: Plugin, ctx: BackendExecEnvCtx): BackendExecEnvResult
+---@field BackendUninstall? fun(self: Plugin, ctx: BackendUninstallCtx)
 PLUGIN = {}
 
 ------------------------------------------------------------------------
