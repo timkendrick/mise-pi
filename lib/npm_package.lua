@@ -8,7 +8,8 @@ local NAME_CHARS = "[%w%-%._~]+"
 --- Raises an error unless the value is a valid npm package name, such as "pi-goal-x" or "@narumitw/pi-lsp".
 --- @param name string
 function M.validate_name(name)
-    local unscoped = name:match("^@" .. NAME_CHARS .. "/(" .. NAME_CHARS .. ")$") or name:match("^" .. NAME_CHARS .. "$")
+    local unscoped = name:match("^@" .. NAME_CHARS .. "/(" .. NAME_CHARS .. ")$")
+        or name:match("^" .. NAME_CHARS .. "$")
     if unscoped == nil or unscoped:match("^[%._]") ~= nil then
         error("invalid npm package name: '" .. name .. "'. Use pi:<name> or pi:@<scope>/<name>")
     end
